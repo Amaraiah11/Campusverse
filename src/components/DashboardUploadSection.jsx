@@ -13,6 +13,7 @@ import {
   FileSearch,
   Scan,
   Trash2,
+  Tag,
 } from "lucide-react";
 import {
   inspectDocumentFile,
@@ -25,6 +26,15 @@ import { useToast } from "../context/ToastContext";
 import { useAuth } from "../context/AuthContext";
 import MarkdownSummary from "./MarkdownSummary";
 import StructuredSummaryView from "./StructuredSummaryView";
+
+export const SUPPORTED_DOC_CATEGORIES = [
+  "Study Material",
+  "Resume / CV",
+  "Project Report",
+  "Research Paper",
+  "Presentation",
+  "Assignment",
+];
 
 /**
  * Cleans raw filenames and document titles:
@@ -157,6 +167,7 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
   const [file, setFile] = useState(null);
   const [documentId, setDocumentId] = useState("");
   const [title, setTitle] = useState("");
+  const [docCategory, setDocCategory] = useState("Study Material");
   const [description, setDescription] = useState("");
   const [isDescriptionUserEdited, setIsDescriptionUserEdited] = useState(false);
   const [generatingDescription, setGeneratingDescription] = useState(false);
@@ -194,6 +205,7 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
     setFile(null);
     setDocumentId("");
     setTitle("");
+    setDocCategory("Study Material");
     setDescription("");
     setIsDescriptionUserEdited(false);
     setGeneratingDescription(false);
@@ -264,7 +276,9 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
         setAcademicCategory(detectedCat);
       }
 
-      // Background classifier for branch and subject
+      // Background classifier for document category, branch, subject, and AI description
+      setClassifying(true);
+      setGeneratingDescription(true);
       try {
         const fd = new FormData();
         fd.append("file", selectedFile);
@@ -273,6 +287,9 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
         const cData = classRes?.data;
         if (cData) {
           setClassification(cData);
+          if (cData.category) {
+            setDocCategory(cData.category);
+          }
           if (cData.branch && cData.branch !== "Unable to classify") {
             setDepartment(cData.branch);
             setAcademicCategory(cData.branch);
@@ -286,6 +303,9 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
         }
       } catch (cErr) {
         console.debug("Background classification notice:", cErr.message);
+      } finally {
+        setClassifying(false);
+        setGeneratingDescription(false);
       }
     } catch (err) {
       setProcessingStatus("Failed");
@@ -399,11 +419,6 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
       return;
     }
 
-    if (!description.trim()) {
-      showToast("Please provide a short 1–2 line description for the material.", "error");
-      return;
-    }
-
     setSubmitting(true);
     try {
       const fd = new FormData();
@@ -423,18 +438,23 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
         fd.append("topic", classification.topics[0]);
       }
 
-      const finalDesc = description.trim();
+      let finalDesc = (description || "").trim();
+      if (!finalDesc && classification?.suggestedDescription) {
+        finalDesc = classification.suggestedDescription;
+      }
       const finalSummary = aiSummary.trim() || finalDesc;
       fd.append("description", finalDesc);
       fd.append("summary", finalSummary);
       fd.append("documentId", documentId);
       fd.append("totalPageCount", String(totalPageCount || 1));
       fd.append("processedPageCount", String(processedPageCount || 1));
-      fd.append("category", "notes");
+      const targetCat = docCategory || classification?.category || "Study Material";
+      fd.append("category", targetCat);
+      fd.append("document_type", targetCat);
 
       await materialsApi.upload(fd);
 
-      showToast("Study material submitted successfully! AI verification active.", "success");
+      showToast("Document uploaded successfully! AI description generated and saved.", "success");
       handleClearFile();
 
       if (onUploadSuccess) {
@@ -580,18 +600,50 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
             </div>
           ) : (
             <p className="text-[11px] text-gray-500 mt-1">
-              Clear title representing the academic material.
+              Clear title representing the academic material or document.
             </p>
           )}
         </div>
 
         {/* ========================================================
-            SHORT DESCRIPTION (1-2 LINES)
+            DOCUMENT CATEGORY / TYPE (AI AUTO-DETECTED)
         ======================================================== */}
         <div>
           <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700">
-              Short Description (1–2 Lines) *
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+              <span>Document Category / Type *</span>
+            </label>
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-800 bg-brand-50 border border-brand-200 px-2 py-0.5 rounded-md">
+              <Sparkles size={11} className="text-brand-600" />
+              <span>{classifying ? "Detecting..." : "AI Auto-Detected"}</span>
+            </span>
+          </div>
+          <select
+            value={docCategory}
+            onChange={(e) => setDocCategory(e.target.value)}
+            className="input-field text-sm font-semibold text-gray-800 bg-white cursor-pointer"
+          >
+            {SUPPORTED_DOC_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-gray-500 mt-1">
+            CampusVerse intelligently classifies your document type (Study Material, Resume / CV, Project Report, Research Paper, Presentation, Assignment) based on extracted content.
+          </p>
+        </div>
+
+        {/* ========================================================
+            SHORT DESCRIPTION (1-2 LINES) - AI AUTO-GENERATED
+        ======================================================== */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+              <span>Short Description (1–2 Lines)</span>
+              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                AI Auto-Generated
+              </span>
             </label>
             <div className="flex items-center gap-2">
               {file && (
@@ -599,13 +651,13 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
                   type="button"
                   onClick={handleGenerateAiDescription}
                   disabled={generatingDescription}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-800 hover:text-brand-900 bg-brand-50 hover:bg-brand-100 border border-brand-200 px-2 py-0.5 rounded-md transition shadow-2xs"
-                  title="Generate 1-2 line description using AI based on document content"
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-800 hover:text-brand-900 bg-brand-50 hover:bg-brand-100 border border-brand-200 px-2.5 py-0.5 rounded-md transition shadow-2xs"
+                  title="Generate or retry 1-2 line description using AI based on document content"
                 >
                   {generatingDescription ? (
                     <>
                       <RefreshCw size={11} className="animate-spin text-brand-600" />
-                      <span>Generating...</span>
+                      <span>AI Analyzing...</span>
                     </>
                   ) : (
                     <>
@@ -622,20 +674,27 @@ export default function DashboardUploadSection({ onUploadSuccess }) {
               )}
             </div>
           </div>
-          <textarea
-            rows={2}
-            value={description}
-            onChange={(e) => {
-              setDescription(e.target.value);
-              setIsDescriptionUserEdited(true);
-            }}
-            placeholder="e.g. In-depth lecture notes on CPU scheduling algorithms, SJF, Round Robin, and deadlock Banker's safety protocol."
-            className="input-field text-sm leading-relaxed resize-none transition"
-            required
-          />
+          <div className="relative">
+            <textarea
+              rows={2}
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                setIsDescriptionUserEdited(true);
+              }}
+              placeholder={
+                generatingDescription
+                  ? "AI is analyzing document text and generating a 1-2 line description..."
+                  : "Auto-generated by AI upon document upload. You may also edit or customize it freely."
+              }
+              className={`input-field text-sm leading-relaxed resize-none transition ${
+                generatingDescription ? "opacity-75 bg-brand-50/20" : ""
+              }`}
+            />
+          </div>
           <div className="flex items-center justify-between text-[11px] text-gray-500 mt-1">
             <p>
-              Brief 1–2 line summary explaining the core topic and syllabus scope. Freely editable before submitting.
+              Grounded strictly in the uploaded document's body content, purpose and concepts.
             </p>
             {isDescriptionUserEdited && (
               <span className="text-[10px] font-semibold text-brand-600">

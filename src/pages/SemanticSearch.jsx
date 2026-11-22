@@ -288,6 +288,11 @@ export default function SemanticSearch() {
                           <FileText size={17} className="text-brand-600 shrink-0" />
                           <span>{res.title}</span>
                         </Link>
+                        {(res.category || res.document_type) && (
+                          <span className="rounded bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[11px] font-bold text-indigo-900">
+                            {res.category || res.document_type}
+                          </span>
+                        )}
                         <span className="rounded bg-brand-50 border border-brand-200 px-2 py-0.5 text-[11px] font-semibold text-brand-900">
                           {res.subject}
                         </span>
@@ -298,7 +303,8 @@ export default function SemanticSearch() {
 
                       {/* Short Description */}
                       {res.description && (
-                        <p className="text-xs text-gray-600 leading-relaxed font-normal pt-0.5">
+                        <p className="text-xs text-gray-700 leading-relaxed font-normal pt-0.5">
+                          <strong className="text-brand-900 font-semibold">AI Description: </strong>
                           {res.description}
                         </p>
                       )}

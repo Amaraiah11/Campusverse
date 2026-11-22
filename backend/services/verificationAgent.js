@@ -67,9 +67,9 @@ You must output ONLY a valid JSON object with exactly these fields:
 }
 
 Status Rules:
-- APPROVED: The document is genuine academic coursework, notes, lab manual, syllabus reference, or question bank relevant to ${subject} / ${department}.
-- REJECTED: Obvious spam, advertisement, non-academic material, offensive content, or completely unrelated to university studies.
-- NEEDS_REVIEW: The document appears academic, but it is ambiguous whether it matches ${subject} or contains mixed unverified content.`;
+- APPROVED: The document is genuine educational, professional, or academic content (such as Study Notes, Resumes/CVs, Project Reports, Research Papers, Presentations, or Assignments) relevant to university students and career development.
+- REJECTED: Obvious commercial spam, advertisements, malware, gambling/casino promotions, adult content, hate speech, or exam cheating exploits.
+- NEEDS_REVIEW: The document content is ambiguous or contains mixed unverified content.`;
 
     try {
       const responseText = await generateChatCompletion({

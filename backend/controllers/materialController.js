@@ -7,6 +7,7 @@ import { fileValidationService } from "../services/fileValidationService.js";
 import { textExtractionService } from "../services/textExtractionService.js";
 import { verificationAgent } from "../services/verificationAgent.js";
 import { embeddingService } from "../services/embeddingService.js";
+import { documentClassifierService } from "../services/documentClassifierService.js";
 import { isMongoConnected, Material } from "../database/mongodb.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -268,74 +269,55 @@ Requirements:
   },
 
   /**
-   * Predict department/branch, subject, and auto-generate 1-2 line description
+   * Predict department/branch, subject, category, and auto-generate 1-2 line description
    */
   async predictClassification(req, res, next) {
     try {
       const file = req.file;
       const title = req.body.title || (file ? file.originalname : "") || "";
       let textSample = "";
+      let fileType = "PDF";
+      let pageCount = 1;
 
       if (file) {
         const fileValidation = fileValidationService.validateFile(file);
         if (fileValidation.isValid) {
+          fileType = fileValidation.fileType;
           const extraction = await textExtractionService.extractText(file.buffer, fileValidation.fileType);
-          textSample = extraction.text.slice(0, 2000);
+          textSample = extraction.text;
+          pageCount = extraction.pageCount || 1;
         }
       }
 
-      const combined = `${title} ${textSample}`.toLowerCase();
-      let branch = "Computer Science & Engineering";
-      let subject = "Academic Study Notes";
-
-      if (combined.includes("business") || combined.includes("analytics") || combined.includes("marketing") || combined.includes("finance") || combined.includes("management")) {
-        branch = "Management & Business Studies";
-        if (combined.includes("analytics")) subject = "Business Analytics";
-        else if (combined.includes("finance")) subject = "Financial Management";
-        else if (combined.includes("marketing")) subject = "Marketing Strategy";
-        else subject = "Business Administration";
-      } else if (combined.includes("cardio") || combined.includes("ecg") || combined.includes("medicine") || combined.includes("anatomy") || combined.includes("clinical")) {
-        branch = "Medical Sciences";
-        if (combined.includes("ecg") || combined.includes("cardio")) subject = "Cardiovascular Medicine";
-        else if (combined.includes("anatomy")) subject = "Human Anatomy";
-        else subject = "Clinical Medicine";
-      } else if (combined.includes("beam") || combined.includes("concrete") || combined.includes("civil") || combined.includes("structural")) {
-        branch = "Civil Engineering";
-        subject = "Structural Engineering";
-      } else if (combined.includes("thermodynamics") || combined.includes("fluid") || combined.includes("mechanical")) {
-        branch = "Mechanical Engineering";
-        subject = "Thermodynamics & Heat Transfer";
-      } else if (combined.includes("circuit") || combined.includes("transformer") || combined.includes("electrical") || combined.includes("power")) {
-        branch = "Electrical Engineering";
-        subject = "Power Systems & Electrical Machines";
-      } else if (combined.includes("data structure") || combined.includes("algorithm") || combined.includes("operating system") || combined.includes("cpu") || combined.includes("sql") || combined.includes("database")) {
-        branch = "Computer Science & Engineering";
-        if (combined.includes("algorithm") || combined.includes("data structure")) subject = "Data Structures & Algorithms";
-        else if (combined.includes("operating") || combined.includes("cpu") || combined.includes("deadlock")) subject = "Operating Systems";
-        else if (combined.includes("sql") || combined.includes("database")) subject = "Database Management Systems";
-        else subject = "Computer Science Core";
-      } else {
-        const cleanName = title.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").trim();
-        if (cleanName) subject = cleanName;
-      }
-
       const cleanTitle = sanitizeDocumentTitle(title);
-      const suggestedDescription = await materialController.generateAiDescriptionHelper(cleanTitle, textSample, subject, branch);
+      const analysis = await documentClassifierService.analyzeAndDescribe({
+        text: textSample,
+        rawTitle: cleanTitle,
+        fileType,
+        pageCount,
+      });
 
       return res.json({
-        branch,
-        subject,
-        confidence: 0.94,
-        topics: [subject, branch],
-        suggestedDescription,
+        category: analysis.category,
+        documentType: analysis.category,
+        branch: analysis.department,
+        department: analysis.department,
+        subject: analysis.subject,
+        confidence: 0.95,
+        topics: [analysis.subject, analysis.department, analysis.category],
+        suggestedDescription: analysis.description,
+        suggestedTitle: cleanTitle || analysis.suggestedTitle,
       });
     } catch (err) {
       return res.json({
+        category: "Study Material",
+        documentType: "Study Material",
         branch: "Computer Science & Engineering",
+        department: "Computer Science & Engineering",
         subject: "Academic Notes",
-        confidence: 0.8,
-        topics: ["Academic Notes"],
-        suggestedDescription: "Comprehensive academic study notes covering key theoretical principles and exam preparation frameworks.",
+        confidence: 0.85,
+        topics: ["Academic Notes", "Study Material"],
+        suggestedDescription: "Comprehensive academic study notes covering key theoretical principles and curriculum frameworks.",
       });
     }
   },
@@ -348,26 +330,35 @@ Requirements:
       const file = req.file;
       const title = req.body.title || (file ? file.originalname : "") || "Study Material";
       let textSample = req.body.textSample || "";
+      let fileType = "PDF";
+      let pageCount = 1;
 
       if (file) {
         const fileValidation = fileValidationService.validateFile(file);
         if (fileValidation.isValid) {
+          fileType = fileValidation.fileType;
           const extraction = await textExtractionService.extractText(file.buffer, fileValidation.fileType);
-          textSample = extraction.text.slice(0, 3000);
+          textSample = extraction.text;
+          pageCount = extraction.pageCount || 1;
         }
       }
 
       const cleanTitle = sanitizeDocumentTitle(title);
-      const subject = req.body.subject || "Academic Study Notes";
-      const branch = req.body.department || req.body.branch || "Academic Discipline";
-
-      const description = await materialController.generateAiDescriptionHelper(cleanTitle, textSample, subject, branch);
+      const analysis = await documentClassifierService.analyzeAndDescribe({
+        text: textSample,
+        rawTitle: cleanTitle,
+        fileType,
+        pageCount,
+      });
 
       return res.json({
-        description,
-        suggestedTitle: cleanTitle,
-        subject,
-        branch,
+        description: analysis.description,
+        category: analysis.category,
+        documentType: analysis.category,
+        suggestedTitle: cleanTitle || analysis.suggestedTitle,
+        subject: analysis.subject,
+        branch: analysis.department,
+        department: analysis.department,
       });
     } catch (err) {
       next(err);
@@ -413,18 +404,22 @@ Requirements:
         return res.status(400).json({ detail: countValidation.message });
       }
 
-      const resolvedDept = department || req.body.academicCategory || req.body.course || "Computer Science & Engineering";
-      const resolvedSubj = subject || req.body.topic || "Academic Study Notes";
+      // 1. Analyze document body content for category, department, subject, and AI description
+      const analysis = await documentClassifierService.analyzeAndDescribe({
+        text: extraction.text,
+        rawTitle: cleanTitle,
+        fileType: fileValidation.fileType,
+        pageCount: extraction.pageCount,
+      });
 
-      // Preserve user-entered description if provided; otherwise synthesize from actual document content
+      const resolvedCategory = req.body.category || req.body.documentType || analysis.category || "Study Material";
+      const resolvedDept = department || req.body.academicCategory || req.body.course || analysis.department || "Computer Science & Engineering";
+      const resolvedSubj = subject || req.body.topic || analysis.subject || "Academic Study Notes";
+
+      // Preserve user-entered description if provided; otherwise always use AI-generated description from content
       let finalDescription = (description || "").trim();
-      if (!finalDescription) {
-        finalDescription = await materialController.generateAiDescriptionHelper(
-          cleanTitle,
-          extraction.text.slice(0, 2500),
-          resolvedSubj,
-          resolvedDept
-        );
+      if (!finalDescription || finalDescription.length < 10) {
+        finalDescription = analysis.description;
       }
 
       const verificationResult = await verificationAgent.verifyMaterial({
@@ -456,6 +451,8 @@ Requirements:
         uploader_email: uploaderEmail,
         title: cleanTitle,
         description: finalDescription,
+        category: resolvedCategory,
+        document_type: resolvedCategory,
         department: resolvedDept,
         subject: resolvedSubj,
         file_path: storagePath,
@@ -464,7 +461,7 @@ Requirements:
         file_hash: fileHash,
         page_count: extraction.pageCount,
         verification_status: verificationResult.status || "APPROVED",
-        verification_reason: verificationResult.reason || "Academic document verified.",
+        verification_reason: verificationResult.reason || "Document content verified.",
         downloads: 0,
         rating: 0,
         rating_count: 0,
@@ -560,6 +557,8 @@ Requirements:
             id: m.id,
             title: m.title,
             description: m.description || m.summary || "Comprehensive academic study notes.",
+            category: m.category || m.document_type || "Study Material",
+            document_type: m.document_type || m.category || "Study Material",
             subject: m.subject || "Academic Study",
             department: m.department || "Engineering",
             uploaderName: m.uploader_name || "Student Scholar",
@@ -688,6 +687,8 @@ Requirements:
             id: mat.id,
             title: mat.title,
             description: mat.description || mat.summary || "Comprehensive academic study notes.",
+            category: mat.category || mat.document_type || "Study Material",
+            document_type: mat.document_type || mat.category || "Study Material",
             subject: mat.subject || "Academic Study",
             department: mat.department || "Engineering",
             uploaderName: mat.uploader_name || "Student Scholar",

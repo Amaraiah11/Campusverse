@@ -13,6 +13,8 @@ const materialSchema = new mongoose.Schema(
     uploader_email: { type: String, default: "student@campusverse.edu" },
     title: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
+    category: { type: String, default: "Study Material", index: true },
+    document_type: { type: String, default: "Study Material", index: true },
     department: { type: String, default: "Computer Science & Engineering" },
     subject: { type: String, default: "Academic Study Notes" },
     file_path: { type: String, default: "" },

@@ -68,6 +68,8 @@ export default function MaterialCard({ material, onToggleBookmark }) {
     title,
     academicCategory,
     mainCategory,
+    category,
+    document_type,
     fileType = "PDF",
     fileSize,
     pageCount = 1,
@@ -88,8 +90,9 @@ export default function MaterialCard({ material, onToggleBookmark }) {
     thumbnail,
   } = material || {};
 
+  const docTypeBadge = category || document_type;
   const resolvedCategory = academicCategory || mainCategory || "Engineering";
-  const resolvedSummary = summary || description || "";
+  const resolvedSummary = description || summary || "";
   const calculatedWordCount = summaryWordCount || (resolvedSummary ? resolvedSummary.trim().split(/\s+/).filter(Boolean).length : 0);
 
   const totalPages = totalPageCount || pageCount || 1;
@@ -211,13 +214,18 @@ export default function MaterialCard({ material, onToggleBookmark }) {
           )}
 
           {/* File Type & Page Count Badge */}
-          <div className="absolute left-2.5 top-2.5 flex items-center gap-1.5">
+          <div className="absolute left-2.5 top-2.5 flex items-center gap-1.5 flex-wrap">
             <span className="rounded-full bg-white/95 border border-brand-200 px-2 py-0.5 text-[11px] font-semibold text-brand-900 shadow-sm">
               {fileType}
             </span>
             {pageLabel && (
               <span className="rounded-full bg-brand-900/80 backdrop-blur-xs px-2 py-0.5 text-[10px] font-medium text-white shadow-sm">
                 {pageLabel}
+              </span>
+            )}
+            {docTypeBadge && (
+              <span className="rounded-full bg-indigo-950/85 backdrop-blur-xs border border-indigo-300/30 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                {docTypeBadge}
               </span>
             )}
           </div>
@@ -253,15 +261,15 @@ export default function MaterialCard({ material, onToggleBookmark }) {
             {fileSize && <span>{fileSize}</span>}
           </div>
 
-          {/* AI-Generated Summary Container */}
+          {/* AI-Generated Description & Summary Container */}
           <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-2.5 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1 text-[11px] font-bold text-brand-900 uppercase tracking-wider">
                 <Sparkles size={11} className="text-brand-600" />
-                <span>AI Summary</span>
+                <span>AI Description</span>
               </span>
               <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                {calculatedWordCount} / {maxSummaryWords} words
+                {calculatedWordCount} words
               </span>
             </div>
 

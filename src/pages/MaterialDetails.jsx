@@ -174,16 +174,21 @@ export default function MaterialDetails() {
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold text-white">{material.title}</h1>
-              <p className="mt-1 text-sm text-white/90">
-                Academic Category: <span className="font-semibold text-white">{material.academicCategory || material.mainCategory || "Engineering"}</span>
-                {" • "}
+              <p className="mt-1 flex items-center gap-2 text-sm text-white/90 flex-wrap">
+                {(material.category || material.document_type) && (
+                  <span className="rounded-md bg-amber-400 text-amber-950 font-extrabold px-2 py-0.5 text-xs shadow-xs">
+                    {material.category || material.document_type}
+                  </span>
+                )}
+                <span>Academic Category: <strong className="text-white">{material.academicCategory || material.mainCategory || "Engineering"}</strong></span>
+                <span>•</span>
                 <span className="text-white/80">
                   {material.fileType || "PDF"} • {material.pageCount || 1} {material.fileType?.toUpperCase().includes("PPT") ? (material.pageCount === 1 ? "slide" : "slides") : (material.pageCount === 1 ? "page" : "pages")}
                 </span>
               </p>
               {material.description && (
                 <p className="mt-2 text-xs sm:text-sm text-white/95 leading-relaxed bg-black/20 p-3 rounded-xl border border-white/20 backdrop-blur-xs max-w-2xl">
-                  <strong className="text-amber-300 font-semibold">Description: </strong>
+                  <strong className="text-amber-300 font-semibold">AI Description: </strong>
                   {material.description}
                 </p>
               )}
@@ -253,7 +258,13 @@ export default function MaterialDetails() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="bg-gray-50/70 p-2.5 rounded-xl border border-gray-100">
+                <span className="text-gray-400 block text-[10px] uppercase font-bold tracking-wider">Document Category</span>
+                <strong className="text-brand-900 text-sm">
+                  {material.category || material.document_type || "Study Material"}
+                </strong>
+              </div>
               <div className="bg-gray-50/70 p-2.5 rounded-xl border border-gray-100">
                 <span className="text-gray-400 block text-[10px] uppercase font-bold tracking-wider">Branch / Department</span>
                 <strong className="text-gray-900 text-sm">
