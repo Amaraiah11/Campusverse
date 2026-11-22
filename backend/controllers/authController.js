@@ -18,31 +18,70 @@ export const authController = {
       }
 
       if (isSupabaseConfigured()) {
-        const { data, error } = await supabase.auth.signUp({
-          email: email.trim().toLowerCase(),
-          password,
-          options: {
-            data: {
-              full_name: resolvedName,
-              department,
-              role,
-            },
-          },
-        });
+        const cleanEmail = email.trim().toLowerCase();
+        let user = null;
+        let token = "auth-session-token";
 
-        if (error) {
-          return res.status(400).json({ detail: error.message });
+        // Try admin.createUser first (auto-confirms email and avoids SMTP rate limit)
+        if (supabase.auth.admin) {
+          try {
+            const { data: adminCreated, error: adminErr } = await supabase.auth.admin.createUser({
+              email: cleanEmail,
+              password,
+              email_confirm: true,
+              user_metadata: {
+                full_name: resolvedName,
+                department,
+                role,
+              },
+            });
+
+            if (!adminErr && adminCreated?.user) {
+              user = adminCreated.user;
+            }
+          } catch (admEx) {
+            console.debug("Admin create user fallback:", admEx.message);
+          }
         }
 
-        const user = data.user;
-        const token = data.session?.access_token || "auth-session-token";
+        // If admin creation did not run, fallback to standard signUp
+        if (!user) {
+          const { data, error } = await supabase.auth.signUp({
+            email: cleanEmail,
+            password,
+            options: {
+              data: {
+                full_name: resolvedName,
+                department,
+                role,
+              },
+            },
+          });
+
+          if (error) {
+            return res.status(400).json({ detail: error.message });
+          }
+          user = data.user;
+          token = data.session?.access_token || token;
+        }
+
+        // Try to obtain a session token by logging in
+        try {
+          const { data: signData } = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password,
+          });
+          if (signData?.session?.access_token) {
+            token = signData.session.access_token;
+          }
+        } catch {}
 
         // Upsert into public.profiles
         if (user) {
           await supabase.from("profiles").upsert({
             id: user.id,
             full_name: resolvedName,
-            email: email.trim().toLowerCase(),
+            email: cleanEmail,
             department,
             role,
           });
@@ -92,10 +131,35 @@ export const authController = {
       }
 
       if (isSupabaseConfigured()) {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim().toLowerCase(),
+        const cleanEmail = email.trim().toLowerCase();
+        let { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
           password,
         });
+
+        // If email not confirmed, auto-confirm it using admin API and retry!
+        if (error && error.message && error.message.toLowerCase().includes("email not confirmed")) {
+          if (supabase.auth.admin) {
+            try {
+              const { data: userList } = await supabase.auth.admin.listUsers();
+              const existingUser = userList?.users?.find((u) => u.email === cleanEmail);
+              if (existingUser) {
+                await supabase.auth.admin.updateUserById(existingUser.id, { email_confirm: true });
+                // Retry sign in
+                const retry = await supabase.auth.signInWithPassword({
+                  email: cleanEmail,
+                  password,
+                });
+                if (!retry.error) {
+                  data = retry.data;
+                  error = null;
+                }
+              }
+            } catch (autoConfErr) {
+              console.warn("Auto-confirmation notice:", autoConfErr.message);
+            }
+          }
+        }
 
         if (error) {
           return res.status(401).json({ detail: error.message });
@@ -155,10 +219,35 @@ export const authController = {
       }
 
       if (isSupabaseConfigured()) {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim().toLowerCase(),
+        const cleanEmail = email.trim().toLowerCase();
+        let { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
           password,
         });
+
+        // If email not confirmed, auto-confirm it using admin API and retry!
+        if (error && error.message && error.message.toLowerCase().includes("email not confirmed")) {
+          if (supabase.auth.admin) {
+            try {
+              const { data: userList } = await supabase.auth.admin.listUsers();
+              const existingUser = userList?.users?.find((u) => u.email === cleanEmail);
+              if (existingUser) {
+                await supabase.auth.admin.updateUserById(existingUser.id, { email_confirm: true });
+                // Retry sign in
+                const retry = await supabase.auth.signInWithPassword({
+                  email: cleanEmail,
+                  password,
+                });
+                if (!retry.error) {
+                  data = retry.data;
+                  error = null;
+                }
+              }
+            } catch (autoConfErr) {
+              console.warn("Auto-confirmation notice:", autoConfErr.message);
+            }
+          }
+        }
 
         if (error) {
           return res.status(401).json({ detail: error.message });
