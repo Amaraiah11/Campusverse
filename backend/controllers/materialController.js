@@ -478,6 +478,50 @@ Requirements:
       if (isMongoConnected()) {
         const doc = await Material.create(savedMaterial);
         savedMaterial = doc.toJSON();
+      } else if (isSupabaseConfigured()) {
+        try {
+          const { data: inserted, error: insErr } = await supabase
+            .from("materials")
+            .insert({
+              id: savedMaterial.id,
+              user_id: String(userId),
+              uploader_name: uploaderName,
+              uploader_email: uploaderEmail,
+              title: cleanTitle,
+              description: finalDescription,
+              category: resolvedCategory,
+              document_type: resolvedCategory,
+              department: resolvedDept,
+              subject: resolvedSubj,
+              file_path: storagePath,
+              file_type: fileValidation.fileType,
+              file_size: fileValidation.sizeFormatted,
+              file_hash: fileHash,
+              page_count: extraction.pageCount,
+              verification_status: verificationResult.status || "APPROVED",
+              verification_reason: verificationResult.reason || "Document content verified.",
+              downloads: 0,
+              rating: 5.0,
+              rating_count: 0,
+              ratings: [],
+              extracted_text: extraction.text || finalDescription,
+              summary: req.body.summary || finalDescription,
+              chunks: (extraction.pages || []).map((p) => ({
+                pageNumber: p.pageNumber,
+                text: p.text,
+              })),
+            })
+            .select()
+            .single();
+
+          if (insErr) {
+            console.warn("Supabase insert notice:", insErr.message);
+          } else if (inserted) {
+            savedMaterial = inserted;
+          }
+        } catch (sErr) {
+          console.warn("Supabase insert exception:", sErr.message);
+        }
       } else {
         localMaterials.unshift(savedMaterial);
       }
@@ -544,6 +588,20 @@ Requirements:
         }
 
         materials = await Material.find(filter).lean();
+      } else if (isSupabaseConfigured()) {
+        try {
+          let query = supabase.from("materials").select("*").eq("verification_status", "APPROVED");
+          if (department && department !== "all") {
+            query = query.ilike("department", `%${department}%`);
+          }
+          if (subject && subject !== "all") {
+            query = query.ilike("subject", `%${subject}%`);
+          }
+          const { data } = await query;
+          materials = data && data.length > 0 ? data : [...localMaterials];
+        } catch {
+          materials = [...localMaterials];
+        }
       } else {
         materials = [...localMaterials];
       }

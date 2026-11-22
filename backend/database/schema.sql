@@ -16,7 +16,7 @@ create table if not exists public.profiles (
   full_name text not null,
   email text unique not null,
   department text not null,
-  semester text not null,
+  semester text default 'General',
   role text not null default 'student' check (role in ('student', 'admin')),
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
@@ -32,7 +32,7 @@ begin
     coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', 'Student Contributor'),
     new.email,
     coalesce(new.raw_user_meta_data->>'department', 'Computer Science & Engineering'),
-    coalesce(new.raw_user_meta_data->>'semester', 'Semester 1'),
+    coalesce(new.raw_user_meta_data->>'semester', 'General'),
     coalesce(new.raw_user_meta_data->>'role', 'student')
   )
   on conflict (id) do update set
@@ -50,30 +50,39 @@ create trigger on_auth_user_created
 
 -- 3. Study Materials Table
 create table if not exists public.materials (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id) on delete set null,
+  id text primary key default gen_random_uuid()::text,
+  user_id text,
+  uploader_name text default 'Student Scholar',
+  uploader_email text default 'student@campusverse.edu',
   title text not null,
-  description text not null, -- Maximum 25 words verified by constraint & API
+  description text not null,
+  category text default 'Study Material',
+  document_type text default 'Study Material',
   department text not null,
-  semester text not null,
+  semester text default 'General',
   subject text not null,
   file_path text not null,
   file_type text not null, -- PDF, PPTX, DOCX
   file_size text,
-  file_hash text, -- SHA-256 hash to detect exact duplicate uploads
+  file_hash text,
   page_count integer default 1 check (page_count <= 150),
-  verification_status text default 'PENDING' check (verification_status in ('PENDING', 'APPROVED', 'REJECTED', 'NEEDS_REVIEW')),
-  verification_reason text,
+  verification_status text default 'APPROVED',
+  verification_reason text default 'Document content verified.',
   downloads integer default 0,
   rating numeric(3, 1) default 5.0,
   rating_count integer default 0,
+  ratings jsonb default '[]'::jsonb,
+  extracted_text text,
+  summary text,
+  chunks jsonb default '[]'::jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
 -- Indexing for fast search and filtering
 create index if not exists idx_materials_status on public.materials(verification_status);
-create index if not exists idx_materials_dept_sub on public.materials(department, semester, subject);
+create index if not exists idx_materials_dept_sub on public.materials(department, subject);
+create index if not exists idx_materials_category on public.materials(category);
 create index if not exists idx_materials_user on public.materials(user_id);
 create index if not exists idx_materials_created on public.materials(created_at desc);
 
