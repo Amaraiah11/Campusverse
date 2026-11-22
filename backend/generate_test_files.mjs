@@ -22,7 +22,7 @@ async function createTestFiles() {
     { text: "TECHNICAL SKILLS", size: 12, bold: true, y: 700 },
     { text: "Languages: JavaScript, TypeScript, Python, Java, SQL, Go", size: 10, bold: false, y: 685 },
     { text: "Frameworks: React, Node.js, Express, FastAPI, Next.js, Spring Boot", size: 10, bold: false, y: 670 },
-    { text: "Cloud & DevOps: AWS (EC2, S3, Lambda), Docker, Kubernetes, CI/CD, MongoDB, PostgreSQL", size: 10, bold: false, y: 655 },
+    { text: "Cloud & DevOps: AWS (EC2, S3, Lambda), Docker, Kubernetes, CI/CD, PostgreSQL, Supabase", size: 10, bold: false, y: 655 },
     { text: "WORK EXPERIENCE", size: 12, bold: true, y: 630 },
     { text: "Senior Software Engineer — TechSphere Solutions (2022 - Present)", size: 11, bold: true, y: 615 },
     { text: "- Architected high-throughput REST APIs handling 5M daily requests with Node.js and Redis caching.", size: 9.5, bold: false, y: 600 },
@@ -36,7 +36,7 @@ async function createTestFiles() {
     { text: "AWS Certified Solutions Architect — Associate (2023)", size: 10, bold: false, y: 465 },
     { text: "KEY PROJECTS", size: 12, bold: true, y: 440 },
     { text: "CloudMetrics: Real-time distributed telemetry pipeline using Go, Kafka, and Grafana.", size: 9.5, bold: false, y: 425 },
-    { text: "CampusConnect: Open-source peer mentorship platform built with React, FastAPI, and MongoDB.", size: 9.5, bold: false, y: 410 },
+    { text: "CampusConnect: Open-source peer mentorship platform built with React, Node.js, and Supabase.", size: 9.5, bold: false, y: 410 },
   ];
 
   for (const line of resumeLines) {

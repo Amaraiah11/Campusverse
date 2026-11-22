@@ -86,19 +86,19 @@ async function runTests() {
         passedAll = false;
       }
 
-      // Step B: Search MongoDB for this material
+      // Step B: Search database for this material
       const searchRes = await axios.get(`${API_BASE}/materials/search?q=${encodeURIComponent(tc.title.split(" ")[0])}`);
       const found = (searchRes.data?.results || []).find((m) =>
         m.title.toLowerCase().includes(tc.title.split(" ")[0].toLowerCase())
       );
 
       if (found) {
-        console.log(`[MongoDB Stored Record]`);
+        console.log(`[Database Stored Record]`);
         console.log(`  Document Title:    "${found.title}"`);
         console.log(`  Stored Category:   "${found.category}"`);
         console.log(`  AI Description:    "${found.description}"`);
         if (found.category === tc.expectedCategory && found.description && found.description.length > 20) {
-          console.log(`✅ MongoDB Persistence & Retrieval PASSED for ${tc.label}`);
+          console.log(`✅ Database Persistence & Retrieval PASSED for ${tc.label}`);
         } else {
           console.error(`❌ Stored document category or description mismatch!`);
           passedAll = false;

@@ -232,7 +232,7 @@ export default function MyUploads() {
         size="sm"
       >
         <p className="text-sm text-gray-600">
-          Are you sure you want to delete <strong>{deleteTarget?.title}</strong>? The file will be permanently removed from cloud storage and MongoDB.
+          Are you sure you want to delete <strong>{deleteTarget?.title}</strong>? The file will be permanently removed from cloud storage and database.
         </p>
         <div className="mt-6 flex justify-end gap-3">
           <button

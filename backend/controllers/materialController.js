@@ -8,7 +8,6 @@ import { textExtractionService } from "../services/textExtractionService.js";
 import { verificationAgent } from "../services/verificationAgent.js";
 import { embeddingService } from "../services/embeddingService.js";
 import { documentClassifierService } from "../services/documentClassifierService.js";
-import { isMongoConnected, Material } from "../database/mongodb.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -385,12 +384,20 @@ Requirements:
 
       const fileHash = fileValidationService.computeFileHash(file.buffer);
 
-      if (isMongoConnected()) {
-        const existing = await Material.findOne({ file_hash: fileHash });
-        if (existing) {
-          return res.status(400).json({
-            detail: `Duplicate upload rejected. This identical file has already been uploaded as "${existing.title}".`,
-          });
+      if (isSupabaseConfigured()) {
+        try {
+          const { data: existing } = await supabase
+            .from("materials")
+            .select("title")
+            .eq("file_hash", fileHash)
+            .maybeSingle();
+          if (existing) {
+            return res.status(400).json({
+              detail: `Duplicate upload rejected. This identical file has already been uploaded as "${existing.title}".`,
+            });
+          }
+        } catch (dupErr) {
+          console.debug("Duplicate check notice:", dupErr.message);
         }
       }
 
@@ -475,10 +482,7 @@ Requirements:
         created_at: new Date(),
       };
 
-      if (isMongoConnected()) {
-        const doc = await Material.create(savedMaterial);
-        savedMaterial = doc.toJSON();
-      } else if (isSupabaseConfigured()) {
+      if (isSupabaseConfigured()) {
         try {
           const { data: inserted, error: insErr } = await supabase
             .from("materials")
@@ -516,11 +520,13 @@ Requirements:
 
           if (insErr) {
             console.warn("Supabase insert notice:", insErr.message);
+            localMaterials.unshift(savedMaterial);
           } else if (inserted) {
             savedMaterial = inserted;
           }
         } catch (sErr) {
           console.warn("Supabase insert exception:", sErr.message);
+          localMaterials.unshift(savedMaterial);
         }
       } else {
         localMaterials.unshift(savedMaterial);
@@ -578,17 +584,7 @@ Requirements:
       const searchTokens = conceptTokens.length > 0 ? conceptTokens : allTokens;
 
       let materials = [];
-      if (isMongoConnected()) {
-        let filter = { verification_status: "APPROVED" };
-        if (department && department !== "all") {
-          filter.department = new RegExp(department, "i");
-        }
-        if (subject && subject !== "all") {
-          filter.subject = new RegExp(subject, "i");
-        }
-
-        materials = await Material.find(filter).lean();
-      } else if (isSupabaseConfigured()) {
+      if (isSupabaseConfigured()) {
         try {
           let query = supabase.from("materials").select("*").eq("verification_status", "APPROVED");
           if (department && department !== "all") {
@@ -790,77 +786,38 @@ Requirements:
         limit = 12,
       } = req.query;
 
-      if (isMongoConnected()) {
-        let filter = { verification_status: "APPROVED" };
-        if (department) filter.department = new RegExp(department, "i");
-        if (subject) filter.subject = new RegExp(subject, "i");
-        if (q) {
-          const tokens = String(q)
-            .trim()
-            .split(/\s+/)
-            .filter((t) => t.length > 1)
-            .map((t) => new RegExp(t, "i"));
-          if (tokens.length > 0) {
-            filter.$or = [
-              { title: { $in: tokens } },
-              { description: { $in: tokens } },
-              { subject: { $in: tokens } },
-              { department: { $in: tokens } },
-              { extracted_text: { $in: tokens } },
-            ];
-          } else {
-            const regex = new RegExp(q, "i");
-            filter.$or = [{ title: regex }, { description: regex }, { subject: regex }, { department: regex }];
-          }
-        }
-
-        let sortOption = { created_at: -1 };
-        if (sort === "popular") sortOption = { downloads: -1 };
-        else if (sort === "rating") sortOption = { rating: -1 };
-
-        const skip = (Number(page) - 1) * Number(limit);
-        const [docs, total] = await Promise.all([
-          Material.find(filter).sort(sortOption).skip(skip).limit(Number(limit)).lean(),
-          Material.countDocuments(filter),
-        ]);
-
-        return res.json({
-          materials: docs,
-          items: docs,
-          total,
-          page: Number(page),
-          totalPages: Math.ceil(total / Number(limit)) || 1,
-        });
-      }
-
       if (isSupabaseConfigured()) {
-        let query = supabase
-          .from("materials")
-          .select("*, profiles(full_name)", { count: "exact" })
-          .eq("verification_status", "APPROVED");
+        try {
+          let query = supabase
+            .from("materials")
+            .select("*", { count: "exact" })
+            .eq("verification_status", "APPROVED");
 
-        if (department) query = query.ilike("department", `%${department}%`);
-        if (subject) query = query.ilike("subject", `%${subject}%`);
-        if (q) query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%,subject.ilike.%${q}%`);
+          if (department) query = query.ilike("department", `%${department}%`);
+          if (subject) query = query.ilike("subject", `%${subject}%`);
+          if (q) query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%,subject.ilike.%${q}%`);
 
-        if (sort === "popular") query = query.order("downloads", { ascending: false });
-        else if (sort === "rating") query = query.order("rating", { ascending: false });
-        else query = query.order("created_at", { ascending: false });
+          if (sort === "popular") query = query.order("downloads", { ascending: false });
+          else if (sort === "rating") query = query.order("rating", { ascending: false });
+          else query = query.order("created_at", { ascending: false });
 
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
-        query = query.range(from, to);
+          const from = (page - 1) * limit;
+          const to = from + limit - 1;
+          query = query.range(from, to);
 
-        const { data, count, error } = await query;
-        if (error) throw error;
+          const { data, count, error } = await query;
+          if (error) throw error;
 
-        return res.json({
-          materials: data || [],
-          items: data || [],
-          total: count || 0,
-          page: Number(page),
-          totalPages: Math.ceil((count || 0) / limit) || 1,
-        });
+          return res.json({
+            materials: data || [],
+            items: data || [],
+            total: count || 0,
+            page: Number(page),
+            totalPages: Math.ceil((count || 0) / limit) || 1,
+          });
+        } catch (sErr) {
+          console.warn("Supabase list notice:", sErr.message);
+        }
       }
 
       let filtered = [...localMaterials];
@@ -888,22 +845,20 @@ Requirements:
     try {
       const { id } = req.params;
 
-      if (isMongoConnected()) {
-        const item = await Material.findOne({ id }).lean();
-        if (item) return res.json({ material: item, ...item });
-      }
-
       if (isSupabaseConfigured()) {
-        const { data, error } = await supabase
-          .from("materials")
-          .select("*, profiles(full_name, email)")
-          .eq("id", id)
-          .single();
+        try {
+          const { data, error } = await supabase
+            .from("materials")
+            .select("*")
+            .eq("id", id)
+            .maybeSingle();
 
-        if (error || !data) {
-          return res.status(404).json({ detail: "Study material not found." });
+          if (data) {
+            return res.json({ material: data, ...data });
+          }
+        } catch (sErr) {
+          console.warn("Supabase detail notice:", sErr.message);
         }
-        return res.json({ material: data });
       }
 
       const item = localMaterials.find((m) => String(m.id) === String(id));
@@ -922,8 +877,17 @@ Requirements:
       const { id } = req.params;
       let item = null;
 
-      if (isMongoConnected()) {
-        item = await Material.findOne({ id }).lean();
+      if (isSupabaseConfigured()) {
+        try {
+          const { data } = await supabase
+            .from("materials")
+            .select("*")
+            .eq("id", id)
+            .maybeSingle();
+          if (data) item = data;
+        } catch (sErr) {
+          console.warn("Supabase preview notice:", sErr.message);
+        }
       }
 
       if (!item) {
@@ -1024,8 +988,11 @@ Requirements:
       const { id } = req.params;
       let item = null;
 
-      if (isMongoConnected()) {
-        item = await Material.findOne({ id }).lean();
+      if (isSupabaseConfigured()) {
+        try {
+          const { data } = await supabase.from("materials").select("*").eq("id", id).maybeSingle();
+          if (data) item = data;
+        } catch {}
       }
       if (!item) {
         item = localMaterials.find((m) => String(m.id) === String(id));
@@ -1117,12 +1084,14 @@ Requirements:
       const { id } = req.params;
       let item = null;
 
-      if (isMongoConnected()) {
-        item = await Material.findOne({ id });
-        if (item) {
-          item.downloads = (item.downloads || 0) + 1;
-          await item.save();
-        }
+      if (isSupabaseConfigured()) {
+        try {
+          const { data } = await supabase.from("materials").select("*").eq("id", id).maybeSingle();
+          if (data) {
+            item = data;
+            await supabase.from("materials").update({ downloads: (data.downloads || 0) + 1 }).eq("id", id);
+          }
+        } catch {}
       }
       if (!item) {
         item = localMaterials.find((m) => String(m.id) === String(id));
@@ -1204,31 +1173,20 @@ Requirements:
     try {
       const userId = req.user?.id || req.query.userId || "demo-usr-1";
 
-      if (isMongoConnected()) {
-        const materials = await Material.find({ user_id: userId })
-          .sort({ created_at: -1 })
-          .lean();
-
-        return res.json({
-          materials: materials || [],
-          items: materials || [],
-          count: materials.length,
-        });
-      }
-
       if (isSupabaseConfigured() && userId) {
         const { data, error } = await supabase
           .from("materials")
           .select("*")
-          .eq("user_id", userId)
+          .eq("user_id", String(userId))
           .order("created_at", { ascending: false });
 
-        if (error) throw error;
-        return res.json({ materials: data || [], items: data || [] });
+        if (!error && data) {
+          return res.json({ materials: data, items: data, count: data.length });
+        }
       }
 
       const filtered = localMaterials.filter((m) => m.user_id === userId);
-      return res.json({ materials: filtered, items: filtered });
+      return res.json({ materials: filtered, items: filtered, count: filtered.length });
     } catch (err) {
       next(err);
     }
@@ -1241,39 +1199,47 @@ Requirements:
     try {
       const userId = req.user?.id || req.query.userId || "demo-usr-1";
 
-      if (isMongoConnected()) {
-        const userMaterials = await Material.find({ user_id: userId }).lean();
-        const totalUploads = userMaterials.length;
-        
-        let totalRatings = 0;
-        let weightedPoints = 0;
+      if (isSupabaseConfigured() && userId) {
+        try {
+          const { data: userMaterials } = await supabase
+            .from("materials")
+            .select("rating, rating_count, ratings")
+            .eq("user_id", String(userId));
 
-        for (const m of userMaterials) {
-          const rCount = m.rating_count || (Array.isArray(m.ratings) ? m.ratings.length : 0);
-          const rScore = Number(m.rating) || 0;
-          totalRatings += rCount;
-          weightedPoints += rScore * rCount;
+          const mats = userMaterials || [];
+          const totalUploads = mats.length;
+          let totalRatings = 0;
+          let weightedPoints = 0;
+
+          for (const m of mats) {
+            const rCount = m.rating_count || (Array.isArray(m.ratings) ? m.ratings.length : 0);
+            const rScore = Number(m.rating) || 0;
+            totalRatings += rCount;
+            weightedPoints += rScore * rCount;
+          }
+
+          let averageRating = "0.0";
+          if (totalRatings > 0) {
+            averageRating = (weightedPoints / totalRatings).toFixed(1);
+          }
+
+          let topBadge = "New Academic Contributor";
+          if (Number(averageRating) >= 4.5 && totalRatings >= 2) {
+            topBadge = "Top Rated Academic Contributor";
+          } else if (totalUploads > 0) {
+            topBadge = "Active Academic Contributor";
+          }
+
+          return res.json({
+            userId,
+            totalUploads,
+            totalRatings,
+            averageRating,
+            topBadge,
+          });
+        } catch (sErr) {
+          console.warn("Supabase userStats notice:", sErr.message);
         }
-
-        let averageRating = "0.0";
-        if (totalRatings > 0) {
-          averageRating = (weightedPoints / totalRatings).toFixed(1);
-        }
-
-        let topBadge = "New Academic Contributor";
-        if (Number(averageRating) >= 4.5 && totalRatings >= 2) {
-          topBadge = "Top Rated Academic Contributor";
-        } else if (totalUploads > 0) {
-          topBadge = "Active Academic Contributor";
-        }
-
-        return res.json({
-          userId,
-          totalUploads,
-          totalRatings,
-          averageRating,
-          topBadge,
-        });
       }
 
       const userMaterials = localMaterials.filter((m) => m.user_id === userId);
@@ -1302,14 +1268,16 @@ Requirements:
       const { id } = req.params;
       const userId = req.user?.id || "demo-usr-1";
 
-      if (isMongoConnected()) {
-        await Material.deleteOne({ id, user_id: userId });
-        return res.json({ success: true, message: "Material deleted." });
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase.from("materials").delete().eq("id", id).eq("user_id", String(userId));
+        } catch (sErr) {
+          console.warn("Supabase delete notice:", sErr.message);
+        }
       }
 
-      if (isSupabaseConfigured()) {
-        await supabase.from("materials").delete().eq("id", id).eq("user_id", userId);
-      }
+      const idx = localMaterials.findIndex((m) => String(m.id) === String(id));
+      if (idx >= 0) localMaterials.splice(idx, 1);
 
       return res.json({ success: true, message: "Material deleted." });
     } catch (err) {
@@ -1322,12 +1290,18 @@ Requirements:
    */
   async popular(req, res, next) {
     try {
-      if (isMongoConnected()) {
-        const docs = await Material.find({ verification_status: "APPROVED" })
-          .sort({ downloads: -1 })
-          .limit(4)
-          .lean();
-        return res.json({ materials: docs, items: docs });
+      if (isSupabaseConfigured()) {
+        try {
+          const { data } = await supabase
+            .from("materials")
+            .select("*")
+            .eq("verification_status", "APPROVED")
+            .order("downloads", { ascending: false })
+            .limit(4);
+          if (data && data.length > 0) {
+            return res.json({ materials: data, items: data });
+          }
+        } catch {}
       }
       return res.json({ materials: localMaterials.slice(0, 4), items: localMaterials.slice(0, 4) });
     } catch (err) {
@@ -1340,12 +1314,18 @@ Requirements:
    */
   async recent(req, res, next) {
     try {
-      if (isMongoConnected()) {
-        const docs = await Material.find({ verification_status: "APPROVED" })
-          .sort({ created_at: -1 })
-          .limit(4)
-          .lean();
-        return res.json({ materials: docs, items: docs });
+      if (isSupabaseConfigured()) {
+        try {
+          const { data } = await supabase
+            .from("materials")
+            .select("*")
+            .eq("verification_status", "APPROVED")
+            .order("created_at", { ascending: false })
+            .limit(4);
+          if (data && data.length > 0) {
+            return res.json({ materials: data, items: data });
+          }
+        } catch {}
       }
       return res.json({ materials: localMaterials.slice(0, 4), items: localMaterials.slice(0, 4) });
     } catch (err) {
@@ -1358,12 +1338,18 @@ Requirements:
    */
   async recommended(req, res, next) {
     try {
-      if (isMongoConnected()) {
-        const docs = await Material.find({ verification_status: "APPROVED" })
-          .sort({ rating: -1 })
-          .limit(4)
-          .lean();
-        return res.json({ materials: docs, items: docs });
+      if (isSupabaseConfigured()) {
+        try {
+          const { data } = await supabase
+            .from("materials")
+            .select("*")
+            .eq("verification_status", "APPROVED")
+            .order("rating", { ascending: false })
+            .limit(4);
+          if (data && data.length > 0) {
+            return res.json({ materials: data, items: data });
+          }
+        } catch {}
       }
       return res.json({ materials: localMaterials.slice(0, 4), items: localMaterials.slice(0, 4) });
     } catch (err) {
@@ -1376,14 +1362,19 @@ Requirements:
    */
   async stats(req, res, next) {
     try {
-      if (isMongoConnected()) {
-        const materialsCount = await Material.countDocuments({ verification_status: "APPROVED" });
-        return res.json({
-          studyMaterials: materialsCount || 0,
-          activeStudents: 142,
-          departments: 8,
-          avgRating: "4.8",
-        });
+      if (isSupabaseConfigured()) {
+        try {
+          const { count } = await supabase
+            .from("materials")
+            .select("*", { count: "exact", head: true })
+            .eq("verification_status", "APPROVED");
+          return res.json({
+            studyMaterials: count || localMaterials.length,
+            activeStudents: 142,
+            departments: 8,
+            avgRating: "4.8",
+          });
+        } catch {}
       }
       return res.json({ studyMaterials: localMaterials.length, activeStudents: 142, departments: 8, avgRating: "4.9" });
     } catch (err) {
@@ -1401,36 +1392,52 @@ Requirements:
       const numericRating = Math.max(1, Math.min(5, Number(rating) || 5));
       const ratingUserId = req.user?.id || userId || `user_${Date.now()}`;
 
-      if (isMongoConnected()) {
-        const mat = await Material.findOne({ id });
-        if (mat) {
-          if (!Array.isArray(mat.ratings)) mat.ratings = [];
+      if (isSupabaseConfigured()) {
+        try {
+          const { data: mat } = await supabase
+            .from("materials")
+            .select("ratings")
+            .eq("id", id)
+            .maybeSingle();
 
-          const existingIdx = mat.ratings.findIndex((r) => r.userId === ratingUserId);
-          if (existingIdx >= 0) {
-            mat.ratings[existingIdx].rating = numericRating;
-            mat.ratings[existingIdx].createdAt = new Date();
-          } else {
-            mat.ratings.push({
-              userId: ratingUserId,
-              rating: numericRating,
-              createdAt: new Date(),
+          if (mat) {
+            let ratings = Array.isArray(mat.ratings) ? [...mat.ratings] : [];
+            const existingIdx = ratings.findIndex((r) => r.userId === ratingUserId);
+            if (existingIdx >= 0) {
+              ratings[existingIdx].rating = numericRating;
+              ratings[existingIdx].createdAt = new Date().toISOString();
+            } else {
+              ratings.push({
+                userId: ratingUserId,
+                rating: numericRating,
+                createdAt: new Date().toISOString(),
+              });
+            }
+
+            const count = ratings.length;
+            const sum = ratings.reduce((acc, r) => acc + r.rating, 0);
+            const avgRating = Number((sum / count).toFixed(1));
+
+            const { data: updated } = await supabase
+              .from("materials")
+              .update({
+                ratings,
+                rating: avgRating,
+                rating_count: count,
+              })
+              .eq("id", id)
+              .select()
+              .single();
+
+            return res.json({
+              success: true,
+              rating: avgRating,
+              ratingCount: count,
+              material: updated,
             });
           }
-
-          const count = mat.ratings.length;
-          const sum = mat.ratings.reduce((acc, r) => acc + r.rating, 0);
-          mat.rating = Number((sum / count).toFixed(1));
-          mat.rating_count = count;
-
-          await mat.save();
-
-          return res.json({
-            success: true,
-            rating: mat.rating,
-            ratingCount: mat.rating_count,
-            material: mat.toJSON(),
-          });
+        } catch (sErr) {
+          console.warn("Supabase rating notice:", sErr.message);
         }
       }
 

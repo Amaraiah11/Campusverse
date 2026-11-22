@@ -131,7 +131,7 @@ Output JSON only:`;
       // Extract specific skills mentioned in the document
       const techKeywords = [
         "React", "Node.js", "JavaScript", "TypeScript", "Python", "Java", "C++", "Golang",
-        "SQL", "MongoDB", "PostgreSQL", "Docker", "Kubernetes", "AWS", "Git", "Machine Learning",
+        "SQL", "MongoDB", "PostgreSQL", "Supabase", "Docker", "Kubernetes", "AWS", "Git", "Machine Learning",
         "Deep Learning", "TensorFlow", "PyTorch", "Data Science", "HTML", "CSS", "Tailwind",
         "Express", "FastAPI", "Spring Boot", "Figma", "REST APIs", "GraphQL"
       ];

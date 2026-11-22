@@ -88,25 +88,24 @@ create index if not exists idx_materials_created on public.materials(created_at 
 
 -- 4. Material Chunks & Embeddings (RAG with pgvector)
 create table if not exists public.material_chunks (
-  id uuid default uuid_generate_v4() primary key,
-  material_id uuid references public.materials(id) on delete cascade not null,
+  id uuid default gen_random_uuid() primary key,
+  material_id text references public.materials(id) on delete cascade not null,
   chunk_text text not null,
   page_number integer not null default 1,
   chunk_index integer not null default 0,
-  embedding vector(1536), -- 1536-dim vector for standard embeddings
+  embedding vector(1536), -- 1536-dim vector for embeddings
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
 create index if not exists idx_chunks_material on public.material_chunks(material_id);
--- HNSW Vector Index for fast cosine similarity search
 create index if not exists idx_chunks_embedding on public.material_chunks using hnsw (embedding vector_cosine_ops);
 
 -- 5. Conversations Table (AI Study Assistant & Ask This Material)
 create table if not exists public.conversations (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id) on delete cascade not null,
+  id text primary key default gen_random_uuid()::text,
+  user_id text not null,
   title text not null default 'New Conversation',
-  material_id uuid references public.materials(id) on delete set null, -- Non-null for 'Ask This Material'
+  material_id text references public.materials(id) on delete set null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -115,8 +114,8 @@ create index if not exists idx_conversations_user on public.conversations(user_i
 
 -- 6. Messages Table
 create table if not exists public.messages (
-  id uuid default uuid_generate_v4() primary key,
-  conversation_id uuid references public.conversations(id) on delete cascade not null,
+  id text primary key default gen_random_uuid()::text,
+  conversation_id text references public.conversations(id) on delete cascade not null,
   role text not null check (role in ('user', 'assistant', 'system')),
   content text not null,
   sources jsonb default '[]'::jsonb, -- Array of { materialId, title, pageNumber, snippet }
@@ -130,11 +129,11 @@ create or replace function match_material_chunks (
   query_embedding vector(1536),
   match_threshold float default 0.65,
   match_count int default 6,
-  filter_material_id uuid default null
+  filter_material_id text default null
 )
 returns table (
   id uuid,
-  material_id uuid,
+  material_id text,
   chunk_text text,
   page_number int,
   material_title text,
@@ -168,97 +167,67 @@ alter table public.material_chunks enable row level security;
 alter table public.conversations enable row level security;
 alter table public.messages enable row level security;
 
--- Profiles: Authenticated users can view profiles; only self or admin can update
-create policy "Profiles viewable by authenticated users"
-  on public.profiles for select
-  to authenticated
-  using (true);
+-- Profiles Policies
+drop policy if exists "Allow select profiles" on public.profiles;
+create policy "Allow select profiles" on public.profiles for select to anon, authenticated using (true);
+drop policy if exists "Allow insert profiles" on public.profiles;
+create policy "Allow insert profiles" on public.profiles for insert to anon, authenticated with check (true);
+drop policy if exists "Allow update profiles" on public.profiles;
+create policy "Allow update profiles" on public.profiles for update to anon, authenticated using (true);
 
-create policy "Users can update own profile"
-  on public.profiles for update
-  to authenticated
-  using (auth.uid() = id);
+-- Materials Policies
+drop policy if exists "Allow select materials" on public.materials;
+create policy "Allow select materials" on public.materials for select to anon, authenticated using (true);
+drop policy if exists "Allow insert materials" on public.materials;
+create policy "Allow insert materials" on public.materials for insert to anon, authenticated with check (true);
+drop policy if exists "Allow update materials" on public.materials;
+create policy "Allow update materials" on public.materials for update to anon, authenticated using (true);
+drop policy if exists "Allow delete materials" on public.materials;
+create policy "Allow delete materials" on public.materials for delete to anon, authenticated using (true);
 
--- Materials:
--- Publicly visible if APPROVED; uploader or admin can see any status
-create policy "Anyone authenticated can view APPROVED materials"
-  on public.materials for select
-  to authenticated
-  using (
-    verification_status = 'APPROVED'
-    or auth.uid() = user_id
-    or exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
+-- Material Chunks Policies
+drop policy if exists "Allow select chunks" on public.material_chunks;
+create policy "Allow select chunks" on public.material_chunks for select to anon, authenticated using (true);
+drop policy if exists "Allow insert chunks" on public.material_chunks;
+create policy "Allow insert chunks" on public.material_chunks for insert to anon, authenticated with check (true);
+drop policy if exists "Allow update chunks" on public.material_chunks;
+create policy "Allow update chunks" on public.material_chunks for update to anon, authenticated using (true);
+drop policy if exists "Allow delete chunks" on public.material_chunks;
+create policy "Allow delete chunks" on public.material_chunks for delete to anon, authenticated using (true);
 
-create policy "Authenticated users can upload materials"
-  on public.materials for insert
-  to authenticated
-  with check (auth.uid() = user_id);
+-- Conversations Policies
+drop policy if exists "Allow all conversations" on public.conversations;
+create policy "Allow all conversations" on public.conversations for all to anon, authenticated using (true) with check (true);
 
-create policy "Users can update own materials or admins"
-  on public.materials for update
-  to authenticated
-  using (
-    auth.uid() = user_id
-    or exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
-
-create policy "Users can delete own materials or admins"
-  on public.materials for delete
-  to authenticated
-  using (
-    auth.uid() = user_id
-    or exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
-
--- Chunks: Readable if associated material is APPROVED or owned
-create policy "Chunks viewable for approved materials or owner"
-  on public.material_chunks for select
-  to authenticated
-  using (
-    exists (
-      select 1 from public.materials m
-      where m.id = material_chunks.material_id
-        and (m.verification_status = 'APPROVED' or m.user_id = auth.uid())
-    )
-  );
-
--- Conversations: Only owner can view, insert, update, delete
-create policy "Conversations owner only"
-  on public.conversations for all
-  to authenticated
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
--- Messages: Only conversation owner can view, insert, delete
-create policy "Messages conversation owner only"
-  on public.messages for all
-  to authenticated
-  using (
-    exists (
-      select 1 from public.conversations c
-      where c.id = messages.conversation_id and c.user_id = auth.uid()
-    )
-  )
-  with check (
-    exists (
-      select 1 from public.conversations c
-      where c.id = messages.conversation_id and c.user_id = auth.uid()
-    )
-  );
+-- Messages Policies
+drop policy if exists "Allow all messages" on public.messages;
+create policy "Allow all messages" on public.messages for all to anon, authenticated using (true) with check (true);
 
 -- 9. Storage Bucket: materials
--- Run in Supabase SQL editor or create in Supabase dashboard
 insert into storage.buckets (id, name, public)
-values ('materials', 'materials', false)
-on conflict (id) do nothing;
+values ('materials', 'materials', true)
+on conflict (id) do update set public = true;
 
-create policy "Authenticated users can upload study files"
+drop policy if exists "Allow public read materials bucket" on storage.objects;
+create policy "Allow public read materials bucket"
+  on storage.objects for select
+  to anon, authenticated
+  using (bucket_id = 'materials');
+
+drop policy if exists "Allow upload materials bucket" on storage.objects;
+create policy "Allow upload materials bucket"
   on storage.objects for insert
-  to authenticated
+  to anon, authenticated
   with check (bucket_id = 'materials');
 
-create policy "Authenticated users can read approved study files"
-  on storage.objects for select
-  to authenticated
+drop policy if exists "Allow update materials bucket" on storage.objects;
+create policy "Allow update materials bucket"
+  on storage.objects for update
+  to anon, authenticated
+  using (bucket_id = 'materials');
+
+drop policy if exists "Allow delete materials bucket" on storage.objects;
+create policy "Allow delete materials bucket"
+  on storage.objects for delete
+  to anon, authenticated
   using (bucket_id = 'materials');

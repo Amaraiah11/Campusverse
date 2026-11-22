@@ -1,6 +1,6 @@
 import { generateChatCompletion, isAiConfigured } from "../config/ai.js";
 import { ragService } from "./ragService.js";
-import { isMongoConnected, Material } from "../database/mongodb.js";
+import { supabase, isSupabaseConfigured } from "../config/supabase.js";
 
 const STRICT_NOTES_SYSTEM_PROMPT = `You are CampusVerse AI, an intelligent academic study notes assistant.
 Your mission is to answer student questions STRICTLY and ONLY based on the content of their selected uploaded study material ("VERIFIED CAMPUS STUDY NOTES CONTEXT").
@@ -113,11 +113,19 @@ export const chatbotService = {
     }
 
     let selectedMaterials = [];
-    if (targetMaterialIds.length > 0 && isMongoConnected()) {
-      try {
-        selectedMaterials = await Material.find({ id: { $in: targetMaterialIds } }).lean();
-      } catch (err) {
-        console.warn("Could not load selected materials from MongoDB:", err.message);
+    if (targetMaterialIds.length > 0) {
+      if (isSupabaseConfigured()) {
+        try {
+          const { data, error } = await supabase
+            .from("materials")
+            .select("*")
+            .in("id", targetMaterialIds);
+          if (!error && Array.isArray(data)) {
+            selectedMaterials = data;
+          }
+        } catch (err) {
+          console.warn("Could not load selected materials from Supabase:", err.message);
+        }
       }
     }
 
@@ -178,7 +186,7 @@ export const chatbotService = {
       };
     }
 
-    // 6. RAG Retrieval via MongoDB chunks
+    // 6. RAG Retrieval via Supabase chunks & embeddings
     const retrievedChunks = await ragService.retrieveContext(rawQuestion, {
       filterMaterialId: selectedDoc.id,
       materialIds: [selectedDoc.id],

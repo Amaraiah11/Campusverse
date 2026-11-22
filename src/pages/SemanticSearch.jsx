@@ -237,7 +237,7 @@ export default function SemanticSearch() {
         <div className="card p-12 text-center bg-white/95 rounded-2xl shadow-md border border-white/40 space-y-3">
           <Loader size="md" />
           <p className="text-sm font-semibold text-brand-900">
-            Searching MongoDB materials and extracted content...
+            Searching Supabase materials and extracted content...
           </p>
         </div>
       )}

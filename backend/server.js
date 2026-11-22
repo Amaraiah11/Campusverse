@@ -7,7 +7,6 @@ import { fileURLToPath } from "url";
 
 import { isSupabaseConfigured } from "./config/supabase.js";
 import { isAiConfigured, getAiProvider } from "./config/ai.js";
-import { connectMongoDB, isMongoConnected } from "./database/mongodb.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import materialRoutes from "./routes/materialRoutes.js";
@@ -70,7 +69,7 @@ app.get("/api/health", (req, res) => {
     status: "ok",
     service: "CampusVerse Backend",
     timestamp: new Date().toISOString(),
-    mongoConnected: isMongoConnected(),
+    database: isSupabaseConfigured() ? "Supabase PostgreSQL" : "Local Standby",
     supabaseConnected: isSupabaseConfigured(),
     aiAgentConfigured: isAiConfigured(),
     aiProvider: getAiProvider(),
@@ -191,14 +190,12 @@ app.get("*", (req, res, next) => {
 // Centralized Error Handling Middleware
 app.use(errorHandler);
 
-// Start HTTP Server and connect to MongoDB
+// Start HTTP Server
 app.listen(PORT, "0.0.0.0", async () => {
   console.log(`====================================================`);
   console.log(`🚀 CampusVerse Backend Server running on port ${PORT}`);
   console.log(`📡 Local:   http://localhost:${PORT}/api/health`);
-  await connectMongoDB();
-  console.log(`🍃 MongoDB:  ${isMongoConnected() ? "Connected & Synchronized ✅" : "Local Database Mode ⚠️"}`);
-  console.log(`🗄️  Supabase: ${isSupabaseConfigured() ? "Configured ✅" : "Optional / Supabase Standby ⚠️"}`);
+  console.log(`🗄️  Supabase Database: ${isSupabaseConfigured() ? "Connected & Configured ✅" : "Standby Mode ⚠️"}`);
   console.log(`🤖 AI Agent: ${isAiConfigured() ? `Active (${getAiProvider()}) ✅` : "Local CampusVerse AI Active (ChatGPT/Gemini Grade) ✅"}`);
   console.log(`====================================================`);
 });

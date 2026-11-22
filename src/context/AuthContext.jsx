@@ -3,7 +3,7 @@ import { authApi } from "../services/endpoints";
 
 const AuthContext = createContext(null);
 
-// Set to false to use the live FastAPI + MongoDB backend
+// Set to false to use the live Node.js + Supabase backend
 const DEMO_MODE = false;
 
 export function AuthProvider({ children }) {
