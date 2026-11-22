@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 import { isSupabaseConfigured } from "./config/supabase.js";
@@ -173,10 +174,18 @@ app.get("/api/recognition/leaderboard", (req, res) => {
   });
 });
 
-// SPA Fallback: Serve index.html for all non-API frontend navigation
+// SPA Fallback: Serve index.html if dist exists, otherwise friendly API root
 app.get("*", (req, res, next) => {
   if (req.url.startsWith("/api")) return next();
-  res.sendFile(path.join(distPath, "index.html"));
+  const indexPath = path.join(distPath, "index.html");
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  return res.json({
+    service: "CampusVerse Backend API",
+    status: "online",
+    healthCheck: "/api/health",
+  });
 });
 
 // Centralized Error Handling Middleware
